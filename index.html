@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>複利試算工具｜梨子理財有道</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-page:       #f5f2ee;
+      --surface:       #ffffff;
+      --border:        rgba(0,0,0,0.10);
+      --border-strong: rgba(0,0,0,0.16);
+      --text-primary:  #1a1a18;
+      --text-secondary:#545450;
+      --text-muted:    #8a8880;
+      --text-accent:   #185fa5;
+      --bg-accent:     #e8f0fb;
+      --border-accent: #9dbce8;
+      --series-blue:   #2a78d6;
+      --series-green:  #1baf7a;
+      --radius:        8px;
+      --font: 'Noto Sans TC', -apple-system, BlinkMacSystemFont, 'PingFang TC', sans-serif;
+      --font-serif: Georgia, 'Times New Roman', serif;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-page:       #141412;
+        --surface:       #1e1e1c;
+        --border:        rgba(255,255,255,0.10);
+        --border-strong: rgba(255,255,255,0.18);
+        --text-primary:  #f0ede8;
+        --text-secondary:#a8a49e;
+        --text-muted:    #6a6660;
+        --text-accent:   #6aabf0;
+        --bg-accent:     #172134;
+        --border-accent: #2d5080;
+        --series-blue:   #3987e5;
+        --series-green:  #199e70;
+      }
+    }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg-page);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 24px 16px 48px;
+    }
+
+    .wrap { width: 100%; max-width: 420px; }
+
+    .brand { font-size: 11px; color: var(--text-muted); letter-spacing: 0.06em; margin-bottom: 4px; }
+    .title { font-size: 18px; font-weight: 500; line-height: 1.35; }
+    .subtitle { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
+    .header { margin-bottom: 18px; }
+
+    .card {
+      background: var(--surface);
+      border: 0.5px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+
+    .slider-row { margin-bottom: 20px; }
+    .slider-row:last-child { margin-bottom: 0; }
+    .slider-meta { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+    .slider-label { font-size: 13px; color: var(--text-secondary); }
+    .slider-val { font-size: 15px; font-weight: 500; }
+
+    input[type=range] {
+      width: 100%;
+      height: 4px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: var(--border-strong);
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      background: var(--series-blue);
+      border: 2px solid var(--surface);
+      box-shadow: 0 0 0 1px var(--series-blue);
+      cursor: pointer;
+    }
+    input[type=range]::-moz-range-thumb {
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      background: var(--series-blue);
+      border: 2px solid var(--surface);
+      cursor: pointer;
+    }
+
+    .slider-bounds { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+
+    .btn {
+      width: 100%;
+      padding: 13px;
+      background: transparent;
+      border: 0.5px solid var(--border-strong);
+      border-radius: var(--radius);
+      font-family: var(--font);
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-primary);
+      cursor: pointer;
+      margin-bottom: 16px;
+      transition: background 0.15s;
+    }
+    .btn:hover { background: var(--bg-page); }
+    .btn:active { transform: scale(0.98); }
+
+    .result-label { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+    .result-big { font-size: 48px; font-weight: 500; color: var(--text-accent); line-height: 1; letter-spacing: -0.02em; font-family: var(--font-serif); }
+    .result-sub { font-size: 13px; color: var(--text-secondary); margin-top: 3px; margin-bottom: 16px; }
+
+    .bar-wrap { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--border-strong); margin-bottom: 10px; }
+    .bar-principal { background: var(--series-green); transition: width 1.2s ease; }
+    .bar-gain { flex: 1; background: var(--series-blue); }
+
+    .bar-legend { display: flex; justify-content: space-between; font-size: 12px; }
+    .legend-item { display: flex; align-items: center; gap: 5px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .legend-text { color: var(--text-secondary); }
+    .legend-val { font-weight: 500; }
+
+    .insight {
+      background: var(--bg-accent);
+      border: 0.5px solid var(--border-accent);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      font-size: 13px;
+      color: var(--text-accent);
+      line-height: 1.7;
+    }
+
+    .chart-legend { display: flex; gap: 14px; margin-bottom: 10px; font-size: 12px; color: var(--text-secondary); }
+    .chart-legend span { display: flex; align-items: center; gap: 5px; }
+    .line-solid { width: 12px; height: 2px; display: inline-block; background: var(--series-blue); }
+    .line-dash { width: 12px; height: 0; display: inline-block; border-top: 2px dashed var(--series-green); }
+
+    .footer { text-align: center; padding: 12px 0 4px; border-top: 0.5px solid var(--border); font-size: 13px; color: var(--text-secondary); line-height: 1.8; margin-top: 4px; }
+    .footer-cta { color: var(--text-accent); font-weight: 500; }
+    .footer-brand { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="brand">梨子理財有道</div>
+    <div class="title">每月存一點，二十年後差多少？</div>
+    <div class="subtitle">帶入自己的數字，讓複利說話</div>
+  </div>
+
+  <div class="card">
+    <div class="slider-row">
+      <div class="slider-meta">
+        <span class="slider-label">每月存入</span>
+        <span class="slider-val" id="monthly-val">NT$5,000</span>
+      </div>
+      <input type="range" id="monthly" min="1000" max="50000" step="500" value="5000">
+      <div class="slider-bounds"><span>NT$1,000</span><span>NT$50,000</span></div>
+    </div>
+
+    <div class="slider-row">
+      <div class="slider-meta">
+        <span class="slider-label">年化報酬率</span>
+        <span class="slider-val" id="rate-val">8%</span>
+      </div>
+      <input type="range" id="rate" min="1" max="15" step="0.5" value="8">
+      <div class="slider-bounds"><span>1%</span><span>15%</span></div>
+    </div>
+
+    <div class="slider-row">
+      <div class="slider-meta">
+        <span class="slider-label">投資年數</span>
+        <span class="slider-val" id="years-val">20 年</span>
+      </div>
+      <input type="range" id="years" min="5" max="40" step="1" value="20">
+      <div class="slider-bounds"><span>5 年</span><span>40 年</span></div>
+    </div>
+  </div>
+
+  <button class="btn" onclick="calculate()">試算結果</button>
+
+  <div id="results" class="hidden">
+    <div class="card">
+      <div class="result-label" id="result-label">20 年後，資產總額</div>
+      <div class="result-big" id="result-total">0 萬</div>
+      <div class="result-sub" id="result-ntd">NT$0</div>
+      <div class="bar-wrap">
+        <div class="bar-principal" id="bar-p" style="width:46%"></div>
+        <div class="bar-gain"></div>
+      </div>
+      <div class="bar-legend">
+        <div class="legend-item">
+          <span class="dot" style="background:var(--series-green)"></span>
+          <span class="legend-text">本金</span>
+          <span class="legend-val" id="leg-principal">—</span>
+        </div>
+        <div class="legend-item">
+          <span class="dot" style="background:var(--series-blue)"></span>
+          <span class="legend-text">複利增值</span>
+          <span class="legend-val" id="leg-gain">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="insight" id="insight-text"></div>
+
+    <div class="card" style="margin-top:12px">
+      <div class="chart-legend">
+        <span><span class="line-solid"></span>資產總額</span>
+        <span><span class="line-dash"></span>累計本金</span>
+      </div>
+      <svg id="chart" viewBox="0 0 340 130" width="100%" role="img" aria-label="複利成長趨勢圖"></svg>
+    </div>
+
+    <div class="footer">
+      想知道你家現在的財務狀況在哪個位置？<br>
+      <span class="footer-cta">私訊梨子，一起來看看</span>
+      <div class="footer-brand">梨子理財有道・三明治世代家庭理財規劃師</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+$('monthly').addEventListener('input', e => { $('monthly-val').textContent = 'NT$' + (+e.target.value).toLocaleString(); });
+$('rate').addEventListener('input', e => { $('rate-val').textContent = e.target.value + '%'; });
+$('years').addEventListener('input', e => { $('years-val').textContent = e.target.value + ' 年'; });
+
+function fmtWan(n) { return Math.round(n / 10000) + ' 萬'; }
+function fmtMoney(n) { return 'NT$' + Math.round(n).toLocaleString(); }
+
+function countUp(el, target, duration, fmt) {
+  const start = performance.now();
+  const step = now => {
+    const t = Math.min((now - start) / duration, 1);
+    const ease = 1 - Math.pow(1 - t, 3);
+    el.textContent = fmt(Math.round(target * ease));
+    if (t < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+function drawChart(chartData, years) {
+  const svg = $('chart');
+  svg.innerHTML = '';
+  const W = 340, H = 130;
+  const PAD = { top: 8, right: 8, bottom: 22, left: 44 };
+  const iW = W - PAD.left - PAD.right;
+  const iH = H - PAD.top - PAD.bottom;
+  const maxY = Math.max(...chartData.map(d => d.total)) * 1.05;
+
+  const toXY = (val, i) => ({
+    x: PAD.left + (i / (chartData.length - 1)) * iW,
+    y: PAD.top + iH - (val / maxY) * iH
+  });
+
+  const smooth = pts => {
+    let p = `M ${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`;
+    for (let i = 1; i < pts.length; i++) {
+      const cx = (pts[i-1].x + pts[i].x) / 2;
+      p += ` C ${cx.toFixed(1)},${pts[i-1].y.toFixed(1)} ${cx.toFixed(1)},${pts[i].y.toFixed(1)} ${pts[i].x.toFixed(1)},${pts[i].y.toFixed(1)}`;
+    }
+    return p;
+  };
+
+  const mk = (tag, attrs) => {
+    const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
+    return el;
+  };
+
+  const totalPts = chartData.map((d, i) => toXY(d.total, i));
+  const principalPts = chartData.map((d, i) => toXY(d.principal, i));
+  const totalPath = smooth(totalPts);
+  const last = totalPts[totalPts.length - 1];
+  const areaD = totalPath + ` L ${last.x.toFixed(1)},${(PAD.top + iH).toFixed(1)} L ${PAD.left},${(PAD.top + iH).toFixed(1)} Z`;
+
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+  const textColor = isDark ? '#6a6660' : '#8a8880';
+  const blue = isDark ? '#3987e5' : '#2a78d6';
+  const green = isDark ? '#199e70' : '#1baf7a';
+  const areaFill = isDark ? 'rgba(57,135,229,0.12)' : 'rgba(42,120,214,0.09)';
+
+  [0.5, 1].forEach(f => {
+    svg.appendChild(mk('line', { x1: PAD.left, y1: PAD.top + iH - f * iH, x2: PAD.left + iW, y2: PAD.top + iH - f * iH, stroke: gridColor, 'stroke-width': 0.5 }));
+  });
+
+  svg.appendChild(mk('path', { d: areaD, fill: areaFill }));
+  svg.appendChild(mk('path', { d: totalPath, fill: 'none', stroke: blue, 'stroke-width': 2, 'stroke-linecap': 'round' }));
+  svg.appendChild(mk('path', { d: smooth(principalPts), fill: 'none', stroke: green, 'stroke-width': 1.5, 'stroke-dasharray': '4 3', 'stroke-linecap': 'round' }));
+
+  [0, 0.5, 1].forEach(f => {
+    const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    t.setAttribute('x', PAD.left - 4);
+    t.setAttribute('y', (PAD.top + iH - f * iH + 4).toFixed(1));
+    t.setAttribute('text-anchor', 'end');
+    t.setAttribute('font-size', 10);
+    t.setAttribute('fill', textColor);
+    t.textContent = Math.round(maxY * f / 10000) + '萬';
+    svg.appendChild(t);
+  });
+
+  const xStep = Math.ceil(years / 4);
+  for (let y = 0; y <= years; y += xStep) {
+    const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    t.setAttribute('x', (PAD.left + (y / years) * iW).toFixed(1));
+    t.setAttribute('y', H - 4);
+    t.setAttribute('text-anchor', 'middle');
+    t.setAttribute('font-size', 10);
+    t.setAttribute('fill', textColor);
+    t.textContent = y + '年';
+    svg.appendChild(t);
+  }
+}
+
+function calculate() {
+  const monthly = +$('monthly').value;
+  const rate = +$('rate').value;
+  const years = +$('years').value;
+
+  const r = rate / 100 / 12;
+  const n = years * 12;
+  const total = monthly * ((Math.pow(1 + r, n) - 1) / r);
+  const principal = monthly * n;
+  const gain = total - principal;
+  const multiplier = (total / principal).toFixed(1);
+
+  const chartData = [];
+  for (let y = 0; y <= years; y++) {
+    const m = y * 12;
+    const t = m === 0 ? 0 : monthly * ((Math.pow(1 + r, m) - 1) / r);
+    chartData.push({ year: y, total: Math.round(t), principal: Math.round(monthly * m) });
+  }
+
+  $('results').classList.remove('hidden');
+  $('result-label').textContent = years + ' 年後，資產總額';
+  $('bar-p').style.width = Math.round((principal / total) * 100) + '%';
+  $('insight-text').innerHTML = `本金只有 <strong>${fmtWan(principal)}</strong>，最後資產是本金的 <strong>${multiplier} 倍</strong>。多出來的那塊，是時間幫你賺的。`;
+
+  countUp($('result-total'), total, 1400, fmtWan);
+  countUp($('result-ntd'), total, 1400, fmtMoney);
+  countUp({ set textContent(v) { $('leg-principal').textContent = fmtWan(v); } }, principal, 1200, v => v);
+  countUp({ set textContent(v) { $('leg-gain').textContent = fmtWan(v); } }, gain, 1300, v => v);
+
+  drawChart(chartData, years);
+}
+</script>
+</body>
+</html>
