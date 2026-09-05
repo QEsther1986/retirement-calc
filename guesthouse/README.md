@@ -55,7 +55,40 @@
 
 查無會員時：`{ "ok": false, "message": "查無此會員" }`
 
-### 2. 入會 / 匯款回報
+### 2. 查詢空房（串 Google 日曆）
+
+`GET {API_URL}?action=getAvailability&from=2026-09-01&to=2026-09-30`
+
+回應為該區間內「已客滿」的日期清單（前端月曆會劃掉這些日期）：
+
+```json
+{ "ok": true, "booked": ["2026-09-08", "2026-09-09", "2026-09-22"] }
+```
+
+### 3. 送出訂房
+
+`POST {API_URL}`（Content-Type: `text/plain`）：
+
+```json
+{
+  "action": "submitBooking",
+  "data": {
+    "phone": "0912345678",
+    "name": "陳美惠",
+    "checkIn": "2026-10-10",
+    "checkOut": "2026-10-12",
+    "roomType": "家庭房",
+    "party": "2大3小",
+    "amount": 800
+  }
+}
+```
+
+回應：`{ "ok": true }` — GAS 端寫入「訂房與扣款紀錄」分頁（對帳狀態預設「待確認」、密碼派發狀態「未派發」），並同步在 Google 日曆建立事件佔住日期。
+
+> 房型與每晚價格定義在 `index.html` 的 `CONFIG.ROOM_TYPES`，扣款金額 = 每晚價格 × 晚數，可自行調整。
+
+### 4. 入會 / 匯款回報
 
 `POST {API_URL}`，**Content-Type 必須是 `text/plain`**（避免 CORS preflight，GAS 不支援 OPTIONS）：
 
@@ -82,18 +115,22 @@
 ```javascript
 const SHEET_ID = '你的試算表 ID';
 
+const CALENDAR_ID = '你的 Google 日曆 ID';   // 空房管理用日曆
+
 function doGet(e) {
   if (e.parameter.action === 'getMember') {
     return json(getMember(e.parameter.phone));
+  }
+  if (e.parameter.action === 'getAvailability') {
+    return json(getAvailability(e.parameter.from, e.parameter.to));
   }
   return json({ ok: false, message: 'unknown action' });
 }
 
 function doPost(e) {
   const body = JSON.parse(e.postData.contents);
-  if (body.action === 'submitTopup') {
-    return json(submitTopup(body.data));
-  }
+  if (body.action === 'submitTopup')   return json(submitTopup(body.data));
+  if (body.action === 'submitBooking') return json(submitBooking(body.data));
   return json({ ok: false, message: 'unknown action' });
 }
 
@@ -144,11 +181,40 @@ function fmtDate(v) {
   return v instanceof Date
     ? Utilities.formatDate(v, 'Asia/Taipei', 'yyyy-MM-dd') : String(v);
 }
+
+// ── 空房查詢：回傳區間內已被日曆事件佔住的日期 ──
+function getAvailability(from, to) {
+  const calendar = CalendarApp.getCalendarById(CALENDAR_ID);
+  const events = calendar.getEvents(new Date(from), new Date(to + 'T23:59:59'));
+  const booked = {};
+  events.forEach(ev => {
+    // 事件每跨一晚，就把那一晚標成已滿（退房日早上不佔）
+    for (let d = new Date(ev.getStartTime()); d < ev.getEndTime(); d.setDate(d.getDate() + 1)) {
+      booked[Utilities.formatDate(d, 'Asia/Taipei', 'yyyy-MM-dd')] = true;
+    }
+  });
+  return { ok: true, booked: Object.keys(booked).sort() };
+}
+
+// ── 訂房：寫入試算表 + 在日曆佔日期 ──
+function submitBooking(d) {
+  const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('訂房與扣款紀錄');
+  sheet.appendRow([
+    new Date(), d.name, d.checkIn, d.checkOut,
+    `${d.roomType}（${d.party}）`, Number(d.amount) || 0,
+    '待確認', '未派發',
+  ]);
+  CalendarApp.getCalendarById(CALENDAR_ID).createAllDayEvent(
+    `【訂房】${d.name} ${d.roomType} ${d.party}`,
+    new Date(d.checkIn), new Date(d.checkOut)
+  );
+  return { ok: true };
+}
 ```
 
 ## 頁面狀態
 
 - ✅ 首頁 / 會員狀態儀表板（登入、會員卡、餘額、效期提醒、近期訂房紀錄）
 - ✅ 入會與匯款回報（匯款資訊一鍵複製、回報表單、成功畫面）
-- ⏳ 我要訂房（骨架已留，待串接 Google 日曆空房）
+- ✅ 我要訂房（月曆空房顯示、入住/退房區間選擇、房型與人數、費用試算與餘額比對、送出預約）
 - ⏳ 老屋入住指南（骨架已留，待補照片、WiFi、地圖內容）
