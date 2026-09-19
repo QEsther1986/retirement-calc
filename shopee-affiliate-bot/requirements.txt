@@ -1,0 +1,8 @@
+# 蝦皮聯盟自動化工具 — Python 套件需求
+# 安裝方式：pip install -r requirements.txt
+
+anthropic>=1.0.0        # 產生短影音腳本與文案（Claude API）
+requests>=2.31.0        # 呼叫蝦皮 / Facebook / Instagram / TikTok API
+PyYAML>=6.0             # 讀取 config.yaml 設定檔
+edge-tts>=6.1.0         # 免費中文語音合成（配音）
+Pillow>=10.0.0          # 圖片處理（尺寸、封面圖）

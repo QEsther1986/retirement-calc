@@ -1,0 +1,231 @@
+# ===========================================================
+#  蝦皮聯盟自動化工具 — 設定檔範本
+# -----------------------------------------------------------
+#  使用方式：
+#    1. 把這個檔案複製一份、改名成 config.yaml
+#       Mac/Linux:  cp config.example.yaml config.yaml
+#       Windows:    copy config.example.yaml config.yaml
+#    2. 照下面的說明修改 config.yaml（這個範本檔不用動）
+#
+#  格式提醒（YAML 很在意格式）：
+#    * 冒號後面一定要有一個空格，例如  mode: demo
+#    * 縮排只能用「空格」，絕對不要用 Tab 鍵
+#    * 中文不用加引號，但如果值裡面有冒號就要用引號包起來
+#
+#  金鑰密碼類的東西都不要寫在這裡，寫在 .env 檔案裡。
+# ===========================================================
+
+
+general:
+  # 每次執行要產出幾支影片。
+  # 建議從 2~3 支開始。一天發太多支，社群平台容易判定為洗版。
+  videos_per_run: 3
+
+  # 每次從商品來源抓幾件候選商品出來篩選。
+  # 抓越多、篩選後的品質越好，但花的時間也越久。
+  candidate_pool: 40
+
+  # 影片輸出資料夾（相對於這個專案）
+  output_dir: output
+
+
+# -----------------------------------------------------------
+#  一、商品從哪裡來
+# -----------------------------------------------------------
+source:
+  # 三選一：
+  #   demo   = 內建假資料，用來測試流程（第一次請用這個）
+  #   csv    = 你自己整理的商品清單（沒有 API 也能全自動，最推薦的起步方式）
+  #   shopee = 蝦皮聯盟開放 API（需要另外申請 App ID / Secret）
+  mode: demo
+
+  csv:
+    # 商品清單檔的位置。範本請看 products.example.csv
+    path: products.csv
+
+  shopee:
+    # 蝦皮聯盟開放 API 的網址。台灣是 .tw，其他市場要改。
+    endpoint: https://open-api.affiliate.shopee.tw/graphql
+
+    # 想主打的商品關鍵字，一行一個。留空 [] 代表不限定。
+    keywords:
+      - 收納
+      - 廚房用品
+      - 3C配件
+
+    # 排序方式（蝦皮定義）：1=最新 2=最高佣金 3=最熱銷
+    sort_type: 2
+
+    # 你的子追蹤代號，用來分辨流量來自哪支影片（選填）
+    sub_id: ""
+
+    timeout_seconds: 30
+
+
+# -----------------------------------------------------------
+#  二、怎麼挑商品（自動選品的規則）
+# -----------------------------------------------------------
+selection:
+  # 幾天之內做過的商品不要再做，避免一直推同一件
+  dedupe_days: 30
+
+  # --- 硬性門檻：沒過就直接淘汰 ---
+  min_commission_rate: 0.05   # 佣金率至少 5%（0.05 = 5%）
+  min_sales: 100              # 銷量至少 100 件
+  min_rating: 4.0             # 評分至少 4.0 星
+  min_price: 100              # 價格下限
+  max_price: 3000             # 價格上限
+
+  # 商品名稱含這些字就跳過。
+  # 醫療、保健、瘦身類的廣告規範很嚴，新手建議先避開。
+  exclude_keywords:
+    - 二手
+    - 福利品
+    - 藥
+    - 醫療
+    - 減肥
+    - 壯陽
+    - 菸
+    - 酒
+
+  # --- 加權評分：決定「先做哪一件」 ---
+  # 價格甜蜜帶：這個區間的商品最容易衝動下單
+  price_sweet_low: 250
+  price_sweet_high: 900
+
+  # 銷量到這個數字就算滿分
+  sales_full_mark: 10000
+
+  # 五個面向的權重，加起來建議等於 1.0
+  weights:
+    commission: 0.30   # 佣金率越高越好
+    sales: 0.25        # 銷量越高代表市場已驗證
+    rating: 0.20       # 評分高，退貨與負評風險低
+    discount: 0.15     # 折扣深，影片的鉤子比較好寫
+    price_band: 0.10   # 價格落在甜蜜帶加分
+
+
+# -----------------------------------------------------------
+#  三、文案與腳本（由 Claude 產生）
+# -----------------------------------------------------------
+content:
+  # 用哪個模型。品質最好的是 claude-opus-5。
+  # 如果想省錢，可以改成 claude-sonnet-5（約便宜一半，品質仍然不錯）。
+  model: claude-opus-5
+
+  # 思考深度：low / medium / high。寫短文案 medium 就很夠。
+  effort: medium
+
+  # 影片長度目標（秒）。15~30 秒的完播率通常最好。
+  target_seconds: 25
+
+  tone: 親切、實在、不誇大，像朋友在分享
+  audience: 25~45 歲、會在蝦皮比價的台灣消費者
+
+
+# -----------------------------------------------------------
+#  四、影片外觀與聲音
+# -----------------------------------------------------------
+video:
+  # 配音聲音（微軟 Edge 免費語音，不用申請帳號）
+  #   zh-TW-HsiaoChenNeural  女聲，自然親切（預設）
+  #   zh-TW-HsiaoYuNeural    女聲，較年輕
+  #   zh-TW-YunJheNeural     男聲，沉穩
+  voice: zh-TW-HsiaoChenNeural
+
+  # 語速。短影音講快一點比較抓得住人，+8% 到 +15% 之間都不錯。
+  voice_rate: "+8%"
+
+  # 每段話講完停多久（秒），讓畫面不會切太快
+  segment_gap_seconds: 0.35
+
+  # 背景音樂檔案路徑（相對於專案根目錄）。留空代表不加。
+  # 重要：一定要用「可商用、無版權爭議」的音樂，
+  #       用有版權的音樂會被平台靜音或下架。
+  bgm_path: ""
+  bgm_volume: 0.12
+
+  # 中文字型檔。留空會自動尋找系統字型。
+  # 想換字型的話，填字型檔的完整路徑，例如：
+  #   Windows: C:/Windows/Fonts/msjhbd.ttc
+  #   macOS:   /System/Library/Fonts/PingFang.ttc
+  font_path: ""
+
+  # --- 版面微調（看不懂可以完全不用動） ---
+  headline_size: 82              # 上方大字的字級
+  headline_color: "#FFE14D"      # 上方大字顏色
+  headline_top: 200              # 上方大字距離頂端多少像素
+  headline_chars_per_line: 9     # 上方大字每行幾個字就換行
+
+  subtitle_size: 56              # 字幕字級
+  subtitle_bottom: 260           # 字幕距離底部多少像素
+  subtitle_chars_per_line: 15    # 字幕每行幾個字就換行
+
+  product_image_size: 900        # 商品圖顯示大小
+  product_image_top: 440         # 商品圖距離頂端多少像素
+
+
+# -----------------------------------------------------------
+#  五、發佈到哪些平台
+# -----------------------------------------------------------
+publish:
+  # 強烈建議一開始保持 true：
+  # 影片做好後會先停下來等你看過，你確認 OK 再執行 approve 才會真的發出去。
+  # 用熟了、確定 AI 文案品質穩定，再改成 false 變成全自動。
+  require_approval: true
+
+  # --- 手動模式：不呼叫任何 API，只把影片和文案整理好讓你自己發 ---
+  manual:
+    enabled: true
+
+  # --- Facebook 粉絲專頁 Reels ---
+  facebook:
+    enabled: false
+    gap_seconds: 90        # 多帳號之間要間隔幾秒（避免被當機器人）
+    timeout_seconds: 180
+    accounts:
+      - label: 我的粉專A
+        # 下面填的是「.env 裡的變數名稱」，不是金鑰本身
+        page_id_env: FB_PAGE_ID
+        access_token_env: FB_PAGE_ACCESS_TOKEN
+        draft: false       # true = 只存成草稿不公開
+      # 要做矩陣就往下加，每個帳號用不同的變數名稱：
+      # - label: 我的粉專B
+      #   page_id_env: FB_PAGE_ID_2
+      #   access_token_env: FB_PAGE_ACCESS_TOKEN_2
+
+  # --- Instagram Reels ---
+  instagram:
+    enabled: false
+    gap_seconds: 120
+    timeout_seconds: 120
+    processing_max_wait_seconds: 300
+
+    # 重要：Instagram 的 API 不能直接上傳檔案，只能給它一個「公開網址」。
+    # 這裡填放影片的網址前綴，程式會自動接上影片檔名。
+    # 詳細做法見 docs/04-申請各平台API.md
+    video_url_base: ""
+
+    accounts:
+      - label: 我的IG_A
+        user_id_env: IG_USER_ID
+        access_token_env: IG_ACCESS_TOKEN
+
+  # --- TikTok ---
+  tiktok:
+    enabled: false
+    gap_seconds: 120
+    timeout_seconds: 300
+
+    # draft  = 送到 TikTok App 的草稿匣，你點一下就能發（不需要審核，建議用這個）
+    # direct = 直接發佈（需要 TikTok 通過你的 Content Posting API 審核）
+    mode: draft
+
+    accounts:
+      - label: 我的TikTok_A
+        client_key_env: TIKTOK_CLIENT_KEY
+        client_secret_env: TIKTOK_CLIENT_SECRET
+        refresh_token_env: TIKTOK_REFRESH_TOKEN
+        # 只有 mode: direct 才會用到：
+        # SELF_ONLY / MUTUAL_FOLLOW_FRIENDS / FOLLOWER_OF_CREATOR / PUBLIC_TO_EVERYONE
+        privacy_level: SELF_ONLY

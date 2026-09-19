@@ -1,0 +1,28 @@
+# ⚠️ 機密：絕對不要上傳
+.env
+.env.*
+!.env.example
+
+# 你自己的設定與商品清單（每個人不一樣）
+config.yaml
+products.csv
+
+# 執行過程產生的東西
+output/
+.work/
+logs/
+data/
+*.mp4
+*.mp3
+*.m4a
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# 作業系統
+.DS_Store
+Thumbs.db
