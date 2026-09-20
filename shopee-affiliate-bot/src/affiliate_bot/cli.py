@@ -8,6 +8,7 @@
     python run.py run --no-publish  只做影片，完全不碰發佈
     python run.py approve all   把待審核的影片全部發出去
     python run.py status        看最近做了哪些影片、發佈成不成功
+    python run.py test-shopee   測試蝦皮 API，看它到底給不給銷量、評分等欄位
 """
 
 from __future__ import annotations
@@ -92,6 +93,122 @@ def _cmd_approve(args, root: Path) -> int:
     return 0
 
 
+def _cmd_test_shopee(args, root: Path) -> int:
+    """實際打一次蝦皮 API，把回傳的欄位攤開來看。
+
+    這支指令存在的理由：蝦皮的開放 API 會改版，官方文件也不見得同步。
+    與其猜「它到底有沒有給銷量欄位」，不如直接打一次看結果。
+    它會明確告訴你：你設定的三個篩選條件，用這份資料跑不跑得動。
+    """
+    import json
+
+    from .sources.shopee_api import ShopeeApiSource
+
+    config = load_config(root)
+
+    print()
+    print("=" * 60)
+    print("  蝦皮 API 連線測試")
+    print("=" * 60)
+    print()
+
+    if not (config.has_secret("SHOPEE_APP_ID") and config.has_secret("SHOPEE_APP_SECRET")):
+        print("❌ .env 裡沒有 SHOPEE_APP_ID 或 SHOPEE_APP_SECRET。")
+        print()
+        print("   這代表你還沒申請到蝦皮開放 API 權限，或還沒把金鑰填進 .env。")
+        print("   在拿到權限之前，請把 config.yaml 的 source.mode 設成 csv，")
+        print("   用自己整理的商品清單，其他流程完全一樣自動。")
+        print()
+        return 1
+
+    # 暫時放寬 mode 檢查，直接建立蝦皮來源
+    original_mode = config.data.setdefault("source", {}).get("mode")
+    config.data["source"]["mode"] = "shopee"
+    try:
+        source = ShopeeApiSource(config)
+    except ConfigError as exc:
+        print(f"❌ {exc}")
+        return 1
+    finally:
+        if original_mode is not None:
+            config.data["source"]["mode"] = original_mode
+
+    print("正在向蝦皮要 3 件商品做測試…")
+    print()
+    try:
+        products = source.fetch(3)
+    except ConfigError as exc:
+        print(f"❌ 連線失敗：\n{exc}")
+        return 1
+
+    if not products:
+        print("⚠️  連線成功，但沒有回傳任何商品。")
+        print("   可能是關鍵字太冷門，或你的帳號還沒有商品權限。")
+        print("   試試把 config.yaml 的 source.shopee.keywords 設成 [] （不限關鍵字）。")
+        return 1
+
+    print(f"✅ 連線成功，取得 {len(products)} 件商品。")
+    print()
+
+    sample = products[0]
+    print("--- 蝦皮實際回傳的原始欄位（第一件商品）---")
+    print(json.dumps(sample.raw, ensure_ascii=False, indent=2)[:1500])
+    print()
+
+    # 逐項檢查你的篩選條件跑不跑得動
+    print("--- 你的篩選條件能不能用 ---")
+    print()
+
+    checks = [
+        ("利潤（售價 × 佣金率）",
+         all(p.price > 0 and p.commission_rate > 0 for p in products),
+         f"min_commission_amount = {config.get('selection.min_commission_amount', 50)}"),
+        ("銷量",
+         all(p.sales > 0 for p in products),
+         f"min_sales = {config.get('selection.min_sales', 2000)}"),
+        ("評分",
+         all(p.rating > 0 for p in products),
+         f"min_rating = {config.get('selection.min_rating', 4.5)}"),
+        ("商品圖（做影片必要）",
+         all(p.image_urls for p in products),
+         "沒有圖就不能做影片"),
+        ("分潤連結",
+         all(p.affiliate_link for p in products),
+         "沒有連結就賺不到佣金"),
+    ]
+
+    blocked = []
+    for label, available, note in checks:
+        mark = "✅" if available else "❌"
+        state = "有資料" if available else "沒有資料"
+        print(f"  {mark} {label}：{state}    （{note}）")
+        if not available:
+            blocked.append(label)
+
+    print()
+    print("--- 實際抓到的商品 ---")
+    for i, p in enumerate(products, start=1):
+        print(f"  {i}. {p.summary()}")
+
+    print()
+    print("-" * 60)
+    if blocked:
+        print(f"⚠️  蝦皮沒有回傳這些欄位：{'、'.join(blocked)}")
+        print()
+        print("   有兩個處理方向：")
+        print("   (1) 上面印出的原始欄位裡，如果看得到對應的資料但名稱不一樣，")
+        print("       把 config.yaml 的 source.shopee.query 改成正確的欄位名稱。")
+        print("   (2) 如果蝦皮真的沒提供，就把對應的門檻設成 0 不篩選，")
+        print("       或改用 csv 模式自己補上這些資料。")
+    else:
+        print("✅ 你的三個條件（利潤、銷量、評分）都有資料可以篩選，可以直接用。")
+        print("   下一步：把 config.yaml 的 source.mode 改成 shopee，然後執行")
+        print("       python run.py pick")
+    print("-" * 60)
+    print()
+    return 0
+
+
 def _cmd_status(args, root: Path) -> int:
     from .db import Database
 
@@ -153,6 +270,9 @@ def build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="查看最近的影片與發佈結果")
     status.add_argument("--limit", type=int, default=20, help="要看幾筆")
 
+    sub.add_parser("test-shopee",
+                   help="實際打一次蝦皮 API，檢查有沒有回傳銷量、評分等欄位")
+
     return parser
 
 
@@ -162,6 +282,7 @@ _COMMANDS = {
     "run": _cmd_run,
     "approve": _cmd_approve,
     "status": _cmd_status,
+    "test-shopee": _cmd_test_shopee,
 }
 
 

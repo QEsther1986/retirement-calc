@@ -69,6 +69,7 @@ python run.py run --count 1
 | `python run.py approve all` | 把待審核的影片全部發出去 |
 | `python run.py approve 3 4` | 只發佈第 3、4 支 |
 | `python run.py status` | 看最近做了哪些影片、發佈成功還失敗 |
+| `python run.py test-shopee` | 實際打一次蝦皮 API，檢查它有沒有回傳銷量、評分等你要篩選的欄位 |
 | `python tests/test_basics.py` | 跑基本邏輯測試（改過設定後想確認沒弄壞可以跑） |
 
 ---
