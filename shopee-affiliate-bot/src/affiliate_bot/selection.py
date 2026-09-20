@@ -1,14 +1,20 @@
 """自動選品：把候選商品篩選 + 評分 + 排序，挑出今天要做影片的那幾件。
 
-評分邏輯刻意做得「看得懂、可調整」，全部參數都在 config.yaml 的 selection 區塊。
-分數 = 佣金分 × w1 + 熱銷分 × w2 + 評價分 × w3 + 折扣分 × w4 + 價格帶分 × w5
+預設的評分邏輯對應「利潤高、分潤高、銷售量高」這個選品規則：
 
-為什麼這樣設計：
-  * 佣金率高 -> 同樣的曝光賺比較多
-  * 銷量高   -> 市場已驗證，轉換率通常比較好
-  * 評分高   -> 退貨/負評風險低，保護你的帳號聲譽
-  * 折扣深   -> 短影音的鉤子好寫（「現在只要 X 折」）
-  * 價格帶   -> 太便宜佣金少、太貴衝動購買率低，中間帶最好轉換
+  分數 = 單件佣金金額 × w1   ← 「利潤高」：你每賣一件實際入袋多少錢
+       + 佣金率       × w2   ← 「分潤高」：抽成比例
+       + 熱銷度       × w3   ← 「銷售量高」：市場已經驗證有人買
+       + 評價         × w4   ← 保護帳號聲譽，避免推到爛東西
+       + 折扣         × w5   ← 影片鉤子好不好寫
+       + 價格帶       × w6   ← 預設關閉，見下方說明
+
+為什麼「單件佣金金額」和「佣金率」要分開算：
+    NT$299 的商品抽 15% = 你賺 45 元
+    NT$1500 的商品抽 8% = 你賺 120 元
+  後者分潤率低一半，但實際賺的多 2.7 倍。只看佣金率會讓你一直推小東西。
+
+所有參數都在 config.yaml 的 selection 區塊，可以自己調。
 """
 
 from __future__ import annotations
@@ -29,7 +35,7 @@ class ScoredProduct:
     breakdown: dict[str, float]
 
     def explain(self) -> str:
-        parts = "、".join(f"{k} {v:.2f}" for k, v in self.breakdown.items())
+        parts = "、".join(f"{k} {v:.2f}" for k, v in self.breakdown.items() if v > 0)
         return f"總分 {self.score:.2f}（{parts}）"
 
 
@@ -52,30 +58,45 @@ def _price_band_score(price: float, sweet_low: float, sweet_high: float) -> floa
 class ProductSelector:
     def __init__(self, config: Config):
         sel = config.get("selection", {}) or {}
+
+        # --- 硬性門檻 ---
         self.min_commission_rate = float(sel.get("min_commission_rate", 0.05))
-        self.min_sales = int(sel.get("min_sales", 100))
+        self.min_commission_amount = float(sel.get("min_commission_amount", 30))
+        self.min_sales = int(sel.get("min_sales", 500))
         self.min_rating = float(sel.get("min_rating", 4.0))
         self.min_price = float(sel.get("min_price", 100))
-        self.max_price = float(sel.get("max_price", 3000))
-        self.price_sweet_low = float(sel.get("price_sweet_low", 250))
-        self.price_sweet_high = float(sel.get("price_sweet_high", 900))
+        self.max_price = float(sel.get("max_price", 5000))
         self.exclude_keywords = [k for k in (sel.get("exclude_keywords") or []) if k]
 
-        weights = sel.get("weights", {}) or {}
-        self.w_commission = float(weights.get("commission", 0.30))
-        self.w_sales = float(weights.get("sales", 0.25))
-        self.w_rating = float(weights.get("rating", 0.20))
-        self.w_discount = float(weights.get("discount", 0.15))
-        self.w_price = float(weights.get("price_band", 0.10))
-
-        # 用來把銷量正規化：達到這個銷量就算滿分
+        # --- 正規化基準：達到這個數字就算滿分 ---
+        self.commission_amount_full_mark = max(
+            1.0, float(sel.get("commission_amount_full_mark", 150))
+        )
+        self.commission_rate_full_mark = max(
+            0.01, float(sel.get("commission_rate_full_mark", 0.20))
+        )
         self.sales_full_mark = max(1, int(sel.get("sales_full_mark", 10000)))
+        self.price_sweet_low = float(sel.get("price_sweet_low", 250))
+        self.price_sweet_high = float(sel.get("price_sweet_high", 1500))
+
+        # --- 權重：預設對應「利潤高、分潤高、銷售量高」 ---
+        weights = sel.get("weights", {}) or {}
+        self.w_commission_amount = float(weights.get("commission_amount", 0.35))
+        self.w_commission = float(weights.get("commission", 0.25))
+        self.w_sales = float(weights.get("sales", 0.25))
+        self.w_rating = float(weights.get("rating", 0.10))
+        self.w_discount = float(weights.get("discount", 0.05))
+        self.w_price = float(weights.get("price_band", 0.0))
 
     # ---------- 篩選 ----------
 
     def _rejection_reason(self, p: Product) -> str | None:
         if p.commission_rate < self.min_commission_rate:
-            return f"佣金率 {p.commission_rate * 100:.1f}% 低於門檻 {self.min_commission_rate * 100:.1f}%"
+            return (f"佣金率 {p.commission_rate * 100:.1f}% "
+                    f"低於門檻 {self.min_commission_rate * 100:.1f}%")
+        if p.estimated_commission < self.min_commission_amount:
+            return (f"單件只賺 NT${p.estimated_commission:.0f}，"
+                    f"低於門檻 NT${self.min_commission_amount:.0f}")
         if p.sales < self.min_sales:
             return f"銷量 {p.sales} 低於門檻 {self.min_sales}"
         if p.rating and p.rating < self.min_rating:
@@ -95,14 +116,20 @@ class ProductSelector:
     # ---------- 評分 ----------
 
     def _score(self, p: Product) -> ScoredProduct:
-        commission_score = _clamp01(p.commission_rate / 0.20)   # 20% 佣金視為滿分
+        # 利潤高：單件實際入袋金額
+        amount_score = _clamp01(p.estimated_commission / self.commission_amount_full_mark)
+        # 分潤高：抽成比例
+        commission_score = _clamp01(p.commission_rate / self.commission_rate_full_mark)
+        # 銷售量高：市場已驗證
         sales_score = _clamp01(p.sales / self.sales_full_mark)
+
         rating_score = _clamp01((p.rating - 3.0) / 2.0) if p.rating else 0.5
-        discount_score = _clamp01(p.discount_rate / 0.60)       # 打四折視為滿分
+        discount_score = _clamp01(p.discount_rate / 0.60)   # 打四折視為滿分
         price_score = _price_band_score(p.price, self.price_sweet_low, self.price_sweet_high)
 
         breakdown = {
-            "佣金": commission_score * self.w_commission,
+            "單件利潤": amount_score * self.w_commission_amount,
+            "分潤率": commission_score * self.w_commission,
             "熱銷": sales_score * self.w_sales,
             "評價": rating_score * self.w_rating,
             "折扣": discount_score * self.w_discount,

@@ -31,7 +31,8 @@ class Product:
 
     def summary(self) -> str:
         return (
-            f"{self.name}｜NT${self.price:,.0f}｜佣金 {self.commission_rate * 100:.1f}%"
+            f"{self.name}｜單件賺 NT${self.estimated_commission:,.0f}"
+            f"（售價 NT${self.price:,.0f} × {self.commission_rate * 100:.1f}%）"
             f"｜銷量 {self.sales:,}｜評分 {self.rating:.1f}"
         )
 

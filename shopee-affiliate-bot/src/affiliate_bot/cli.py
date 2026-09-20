@@ -55,8 +55,9 @@ def _cmd_pick(args, root: Path) -> int:
     for index, scored in enumerate(chosen, start=1):
         p = scored.product
         print(f"  {index}. {p.name}")
-        print(f"     價格 NT${p.price:,.0f}｜佣金 {p.commission_rate * 100:.1f}%"
-              f"（約 NT${p.estimated_commission:,.0f}/件）｜銷量 {p.sales:,}｜評分 {p.rating:.1f}")
+        print(f"     💰 單件賺 NT${p.estimated_commission:,.0f}"
+              f"（售價 NT${p.price:,.0f} × 分潤 {p.commission_rate * 100:.1f}%）")
+        print(f"     📦 銷量 {p.sales:,} 件｜⭐ 評分 {p.rating:.1f}")
         print(f"     {scored.explain()}")
         print()
     print("確認沒問題的話，執行：python run.py run\n")

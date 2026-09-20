@@ -95,7 +95,12 @@ selection:
 def test_selector_ranking() -> None:
     print("\n[選品：排序]")
     with tempfile.TemporaryDirectory() as td:
-        config = _config_in(Path(td), "selection:\n  min_sales: 0\n  min_commission_rate: 0\n")
+        config = _config_in(Path(td), """
+selection:
+  min_sales: 0
+  min_commission_rate: 0
+  min_commission_amount: 0
+""")
         selector = ProductSelector(config)
 
         low = make_product(item_id="low", name="低分", commission_rate=0.05, sales=200)
@@ -110,6 +115,56 @@ def test_selector_ranking() -> None:
         top_only = selector.select([low, high], 1)
         check(len(top_only) == 1 and top_only[0].product.item_id == "high",
               "只要 N 件時會取分數最高的")
+
+
+def test_profit_dimension() -> None:
+    """驗證「利潤高」這條規則：單件實拿金額要能壓過佣金率。"""
+    print("\n[選品：利潤（單件實拿金額）]")
+    with tempfile.TemporaryDirectory() as td:
+        config = _config_in(Path(td), """
+selection:
+  min_sales: 0
+  min_commission_rate: 0
+  min_commission_amount: 30
+  max_price: 99999
+  weights:
+    commission_amount: 0.35
+    commission: 0.25
+    sales: 0.25
+    rating: 0.10
+    discount: 0.05
+    price_band: 0.0
+""")
+        selector = ProductSelector(config)
+
+        # 小東西：分潤率高，但一件只賺 45 元
+        small = make_product(item_id="small", name="便宜小物",
+                             price=300, commission_rate=0.15, sales=5000)
+        # 大東西：分潤率只有一半，但一件賺 120 元
+        big = make_product(item_id="big", name="高單價商品",
+                           price=1500, commission_rate=0.08, sales=5000)
+
+        check(abs(small.estimated_commission - 45) < 0.01, "小物單件利潤算出來是 45 元")
+        check(abs(big.estimated_commission - 120) < 0.01, "高單價單件利潤算出來是 120 元")
+
+        result = selector.select([small, big], 2)
+        check(result[0].product.item_id == "big",
+              "銷量相同時，單件利潤高的排前面（即使分潤率較低）")
+        check(result[0].breakdown["單件利潤"] > result[1].breakdown["單件利潤"],
+              "利潤項得分確實較高")
+        check(result[1].breakdown["分潤率"] > result[0].breakdown["分潤率"],
+              "分潤率項仍然是小物較高（兩個維度有分開計算）")
+
+        # 利潤門檻：一件只賺 20 元的要被淘汰
+        thin = make_product(item_id="thin", price=200, commission_rate=0.10)
+        check(len(selector.select([thin], 5)) == 0,
+              "單件利潤低於 min_commission_amount 會被淘汰")
+
+        # 三高都滿足的商品應該拿到最高分
+        best = make_product(item_id="best", price=1200, commission_rate=0.18,
+                            sales=12000, rating=4.9)
+        ranked = selector.select([small, big, best], 3)
+        check(ranked[0].product.item_id == "best", "利潤、分潤、銷量三者皆高的排第一")
 
 
 def test_caption() -> None:
@@ -173,6 +228,7 @@ def main() -> int:
     test_config()
     test_selector_filters()
     test_selector_ranking()
+    test_profit_dimension()
     test_caption()
     test_csv_source()
     test_safe_name()
