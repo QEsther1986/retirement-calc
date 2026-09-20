@@ -167,6 +167,56 @@ selection:
         check(ranked[0].product.item_id == "best", "利潤、分潤、銷量三者皆高的排第一")
 
 
+def test_strict_thresholds_and_diagnostics() -> None:
+    """驗證收緊後的門檻（利潤 50 / 銷量 2000 / 評分 4.5），以及淘汰原因分類。"""
+    print("\n[選品：嚴格門檻與診斷]")
+    with tempfile.TemporaryDirectory() as td:
+        config = _config_in(Path(td), """
+selection:
+  min_commission_amount: 50
+  min_sales: 2000
+  min_rating: 4.5
+  min_commission_rate: 0.08
+""")
+        selector = ProductSelector(config)
+
+        # 三個條件都剛好達標
+        ok = make_product(item_id="ok", price=800, commission_rate=0.10,
+                          sales=2000, rating=4.5)
+        check(len(selector.select([ok], 5)) == 1, "剛好達到三個門檻的商品會通過")
+
+        # 逐項測邊界
+        cases = [
+            (make_product(price=490, commission_rate=0.10, sales=5000, rating=4.8),
+             "單件利潤不足", "單件賺 49 元（差 1 元）被擋下"),
+            (make_product(price=800, commission_rate=0.10, sales=1999, rating=4.8),
+             "銷量不足", "銷量 1999（差 1 件）被擋下"),
+            (make_product(price=800, commission_rate=0.10, sales=5000, rating=4.4),
+             "評分不足", "評分 4.4（差 0.1）被擋下"),
+        ]
+        for product, expected_category, label in cases:
+            outcome = selector._rejection_reason(product)
+            check(outcome is not None and outcome[0] == expected_category, label)
+
+        # 資料缺失：銷量為 0 要被歸類成「銷量不足」，而不是默默通過
+        no_data = make_product(item_id="nodata", price=800, commission_rate=0.10,
+                               sales=0, rating=0)
+        outcome = selector._rejection_reason(no_data)
+        check(outcome is not None and outcome[0] == "銷量不足",
+              "沒有銷量資料的商品會被擋下（不會被當成達標）")
+
+        # 評分缺失也要擋，不能因為 0 是假值就放行
+        no_rating = make_product(item_id="norating", price=800, commission_rate=0.10,
+                                 sales=5000, rating=0)
+        outcome = selector._rejection_reason(no_rating)
+        check(outcome is not None and outcome[0] == "評分不足",
+              "沒有評分資料的商品會被擋下")
+
+        # 全部被淘汰時不應該當掉，要回傳空清單
+        check(selector.select([no_data, no_rating], 5) == [],
+              "全部淘汰時安全回傳空清單")
+
+
 def test_caption() -> None:
     print("\n[貼文文案組裝]")
     script = VideoScript(
@@ -229,6 +279,7 @@ def main() -> int:
     test_selector_filters()
     test_selector_ranking()
     test_profit_dimension()
+    test_strict_thresholds_and_diagnostics()
     test_caption()
     test_csv_source()
     test_safe_name()

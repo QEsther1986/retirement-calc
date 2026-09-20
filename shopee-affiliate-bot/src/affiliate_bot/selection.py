@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 
 from .config import Config
@@ -61,9 +62,9 @@ class ProductSelector:
 
         # --- 硬性門檻 ---
         self.min_commission_rate = float(sel.get("min_commission_rate", 0.05))
-        self.min_commission_amount = float(sel.get("min_commission_amount", 30))
-        self.min_sales = int(sel.get("min_sales", 500))
-        self.min_rating = float(sel.get("min_rating", 4.0))
+        self.min_commission_amount = float(sel.get("min_commission_amount", 50))
+        self.min_sales = int(sel.get("min_sales", 2000))
+        self.min_rating = float(sel.get("min_rating", 4.5))
         self.min_price = float(sel.get("min_price", 100))
         self.max_price = float(sel.get("max_price", 5000))
         self.exclude_keywords = [k for k in (sel.get("exclude_keywords") or []) if k]
@@ -90,28 +91,68 @@ class ProductSelector:
 
     # ---------- 篩選 ----------
 
-    def _rejection_reason(self, p: Product) -> str | None:
+    def _rejection_reason(self, p: Product) -> tuple[str, str] | None:
+        """回傳 (卡在哪一關, 詳細說明)。通過則回傳 None。"""
         if p.commission_rate < self.min_commission_rate:
-            return (f"佣金率 {p.commission_rate * 100:.1f}% "
+            return ("分潤率不足",
+                    f"佣金率 {p.commission_rate * 100:.1f}% "
                     f"低於門檻 {self.min_commission_rate * 100:.1f}%")
         if p.estimated_commission < self.min_commission_amount:
-            return (f"單件只賺 NT${p.estimated_commission:.0f}，"
+            return ("單件利潤不足",
+                    f"單件只賺 NT${p.estimated_commission:.0f}，"
                     f"低於門檻 NT${self.min_commission_amount:.0f}")
         if p.sales < self.min_sales:
-            return f"銷量 {p.sales} 低於門檻 {self.min_sales}"
-        if p.rating and p.rating < self.min_rating:
-            return f"評分 {p.rating:.1f} 低於門檻 {self.min_rating}"
+            return ("銷量不足", f"銷量 {p.sales:,} 低於門檻 {self.min_sales:,}")
+        if p.rating < self.min_rating:
+            return ("評分不足", f"評分 {p.rating:.1f} 低於門檻 {self.min_rating}")
         if not (self.min_price <= p.price <= self.max_price):
-            return f"價格 {p.price:.0f} 不在 {self.min_price:.0f}~{self.max_price:.0f} 範圍"
+            return ("價格超出範圍",
+                    f"價格 {p.price:.0f} 不在 {self.min_price:.0f}~{self.max_price:.0f} 範圍")
         if not p.image_urls:
-            return "沒有商品圖片，無法做影片"
+            return ("沒有商品圖", "沒有商品圖片，無法做影片")
         if not p.affiliate_link:
-            return "沒有分潤連結"
+            return ("沒有分潤連結", "沒有分潤連結")
         lowered = p.name.lower()
         for word in self.exclude_keywords:
             if word.lower() in lowered:
-                return f"商品名稱含排除關鍵字「{word}」"
+                return ("命中排除關鍵字", f"商品名稱含排除關鍵字「{word}」")
         return None
+
+    # ---------- 資料完整性檢查 ----------
+
+    def _warn_if_data_missing(self, products: list[Product]) -> None:
+        """檢查資料來源有沒有給齊欄位。
+
+        這個檢查很重要：如果蝦皮 API 或你的 CSV 根本沒有「銷量」欄位，
+        所有商品的銷量都會是 0，然後被 min_sales 全部擋掉，
+        畫面上只會顯示「沒有商品通過篩選」——你會完全不知道是資料缺了，
+        還是真的沒有好商品。這裡把這兩種情況分開講清楚。
+        """
+        total = len(products)
+        if total == 0:
+            return
+
+        checks = [
+            ("銷量", sum(1 for p in products if p.sales <= 0), self.min_sales > 0,
+             "min_sales", "sales"),
+            ("評分", sum(1 for p in products if p.rating <= 0), self.min_rating > 0,
+             "min_rating", "rating"),
+            ("佣金率", sum(1 for p in products if p.commission_rate <= 0), True,
+             "min_commission_rate", "commission_rate"),
+        ]
+
+        for label, missing, threshold_in_use, config_key, csv_column in checks:
+            if missing < total * 0.8 or not threshold_in_use:
+                continue
+            log.warning("")
+            log.warning("⚠️  注意：%d/%d 件商品沒有「%s」資料。", missing, total, label)
+            log.warning("    這不是商品不好，是資料來源沒有提供這個欄位。")
+            log.warning("    照目前設定，這些商品會全部被 %s 擋掉。", config_key)
+            log.warning("    你可以二選一：")
+            log.warning("      (1) 在 config.yaml 把 %s 設成 0，先不用這個條件篩選", config_key)
+            log.warning("      (2) 補上資料：CSV 模式請填 %s 欄位；", csv_column)
+            log.warning("          蝦皮 API 模式請確認回傳欄位名稱是否改版")
+            log.warning("")
 
     # ---------- 評分 ----------
 
@@ -145,14 +186,20 @@ class ProductSelector:
         kept: list[ScoredProduct] = []
         rejected = 0
 
+        self._warn_if_data_missing(products)
+
+        reasons: Counter[str] = Counter()
         for p in products:
             if p.item_id in exclude_ids:
                 log.debug("略過 %s：最近已經做過影片。", p.name)
+                reasons["最近推過了"] += 1
                 rejected += 1
                 continue
-            reason = self._rejection_reason(p)
-            if reason:
-                log.debug("略過 %s：%s", p.name, reason)
+            outcome = self._rejection_reason(p)
+            if outcome:
+                category, detail = outcome
+                log.debug("略過 %s：%s", p.name, detail)
+                reasons[category] += 1
                 rejected += 1
                 continue
             kept.append(self._score(p))
@@ -160,6 +207,15 @@ class ProductSelector:
         kept.sort(key=lambda s: s.score, reverse=True)
         log.info("選品完成：候選 %d 件、通過篩選 %d 件、淘汰 %d 件，取前 %d 件製作影片。",
                  len(products), len(kept), rejected, min(count, len(kept)))
+
+        # 告訴使用者大家都卡在哪一關，這樣才知道該放寬哪個條件
+        if reasons:
+            summary = "、".join(f"{name} {n} 件" for name, n in reasons.most_common())
+            log.info("  淘汰原因分佈：%s", summary)
+            if not kept:
+                top_reason = reasons.most_common(1)[0][0]
+                log.error("  全部被淘汰，最主要卡在「%s」。請放寬 config.yaml 對應的門檻。",
+                          top_reason)
 
         for i, item in enumerate(kept[:count], start=1):
             log.info("  第%d名 %s", i, item.product.summary())
